@@ -1,12 +1,22 @@
 #!/usr/bin/env node
 /**
- * claude-code-bridge v1.2 — OpenAI-compatible API proxy for Claude Code CLI
+ * claude-code-bridge v1.3 — OpenAI + Anthropic API proxy for Claude Code CLI
  *
  * Architecture:
- *   Any OpenAI-compatible client  ──(OpenAI API)──►  claude-code-bridge (port 18793)  ──►  claude -p --output-format stream-json
+ *   OpenAI / Anthropic clients  ──►  claude-code-bridge (port 18793)  ──►  claude -p --output-format stream-json
  *
- * This proxy server provides an OpenAI-compatible API format,
- * letting any OpenAI-compatible client call Claude Code CLI.
+ * This proxy server speaks both the OpenAI and Anthropic wire formats,
+ * letting any OpenAI- or Anthropic-compatible client call Claude Code CLI.
+ *
+ * v1.3 improvements:
+ *   - Anthropic Messages API compat: POST /v1/messages (+ /v1/messages/count_tokens),
+ *     so the Anthropic SDK and Claude Code (ANTHROPIC_BASE_URL → bridge) can use it.
+ *     Translation layer lives in lib/anthropic-compat.mjs — requests become the
+ *     OpenAI shape and run through the existing pipeline; responses are rewritten.
+ *   - Optional bearer auth: set BRIDGE_API_KEY to require a key on every endpoint
+ *     except /health (Authorization: Bearer <key> or x-api-key). See lib/auth.mjs.
+ *   - Prometheus /metrics: requests/duration/auth failures/inflight/uptime.
+ *   - Self-loads .env (process.loadEnvFile) — no longer depends on start.sh.
  *
  * v1.2 improvements:
  *   - Tool Bridge Mode: supports OpenAI tool_calls when request contains tools[]
@@ -35,8 +45,19 @@ import { createWriteStream, writeFileSync, unlinkSync, mkdtempSync, createReadSt
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { anthropicToOpenAI, createAnthropicResponseAdapter } from "./lib/anthropic-compat.mjs";
+import { isAuthorized } from "./lib/auth.mjs";
+import { createMetrics, endpointLabel } from "./lib/metrics.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+
+// Load .env from the script directory so `node claude-code-bridge.mjs` works
+// without start.sh plumbing the variables in (loadEnvFile lands in process.env).
+try {
+    process.loadEnvFile(join(SCRIPT_DIR, ".env"));
+} catch {
+    // No .env file (or unreadable) — rely on the ambient environment.
+}
 
 // ─── Daily log setup ─────────────────────────────────────────────
 const LOG_DIR = join(SCRIPT_DIR, "logs");
@@ -103,6 +124,10 @@ const CONFIG = {
     // Verbose logging: log full request/response bodies and claude-cli I/O
     // Set BRIDGE_VERBOSE=false to disable (defaults to true)
     verbose: process.env.BRIDGE_VERBOSE !== "false",
+    // Optional bearer auth: when set, every endpoint except /health requires the
+    // key. Empty (default) disables auth — fine for the localhost-only threat
+    // model; set BRIDGE_API_KEY before exposing the bridge on a LAN / Tailscale.
+    apiKey: process.env.BRIDGE_API_KEY || "",
 };
 
 // Hardcoded fallback: known Claude Code model aliases and full IDs
@@ -672,18 +697,67 @@ function runClaudeCode(prompt, requestModel, stream, res, tools) {
 
 // ─── HTTP Server ─────────────────────────────────────────────────
 
+const metrics = createMetrics();
+
+/**
+ * Send an Anthropic-shaped error (for /v1/messages* routes, where clients
+ * expect {type:"error", error:{type, message}} instead of the OpenAI shape).
+ */
+function sendAnthropicError(res, status, message, type = "api_error") {
+    if (res.headersSent) return;
+    res.writeHead(status, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify({ type: "error", error: { type, message } }));
+}
+
 const server = createServer(async (req, res) => {
     if (req.method === "OPTIONS") {
         res.writeHead(204, {
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key, anthropic-version",
         });
         res.end();
         return;
     }
 
     const url = new URL(req.url, `http://${CONFIG.host}:${CONFIG.port}`);
+
+    // ── Metrics instrumentation (every request) ──
+    const requestStartMs = Date.now();
+    metrics.incInflight();
+    // 'close' fires for both clean finishes and aborted connections.
+    res.once("close", () => {
+        metrics.decInflight();
+        metrics.recordRequest({
+            endpoint: endpointLabel(url.pathname),
+            method: req.method,
+            status: res.statusCode,
+            durationMs: Date.now() - requestStartMs,
+        });
+    });
+
+    // ── Optional bearer auth (BRIDGE_API_KEY) — /health stays public ──
+    const isPublicPath = url.pathname === "/health" || url.pathname === "/";
+    if (CONFIG.apiKey && !isPublicPath && !isAuthorized(req.headers, CONFIG.apiKey)) {
+        metrics.incAuthFailure();
+        const message = "Missing or invalid API key (use Authorization: Bearer <key> or x-api-key)";
+        if (url.pathname.startsWith("/v1/messages")) {
+            sendAnthropicError(res, 401, message, "authentication_error");
+        } else {
+            sendError(res, 401, message, "auth_error");
+        }
+        return;
+    }
+
+    // ── GET /metrics — Prometheus text exposition format ──
+    if (url.pathname === "/metrics" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" });
+        res.end(metrics.render());
+        return;
+    }
 
     // ── Health check ──
     if ((url.pathname === "/health" || url.pathname === "/") && req.method === "GET") {
@@ -695,9 +769,17 @@ const server = createServer(async (req, res) => {
             JSON.stringify({
                 status: "ok",
                 service: "claude-code-bridge",
-                version: "1.2.1",
+                version: "1.3.0",
                 model: CONFIG.claudeModel,
                 permissionMode: CONFIG.permissionMode,
+                supports: {
+                    // v1.3 — Anthropic Messages API + optional bearer auth + Prometheus metrics
+                    anthropic_messages: true,
+                    bearer_auth: !!CONFIG.apiKey,
+                    metrics: true,
+                    tool_bridge: true,
+                    streaming: true,
+                },
             })
         );
         return;
@@ -773,6 +855,74 @@ const server = createServer(async (req, res) => {
         return;
     }
 
+    // ── POST /v1/messages ── (Anthropic Messages API compatibility)
+    // Lets the Anthropic SDK and Claude Code itself (ANTHROPIC_BASE_URL → bridge)
+    // talk to the bridge. The request is translated to the OpenAI shape and fed
+    // through the existing pipeline; a response adapter rewrites the OpenAI
+    // JSON/SSE output back to Anthropic shape on the way out.
+    if (url.pathname === "/v1/messages" && req.method === "POST") {
+        let body;
+        try {
+            body = await readBody(req);
+        } catch {
+            sendAnthropicError(res, 400, "Failed to read request body", "invalid_request_error");
+            return;
+        }
+
+        let data;
+        try {
+            data = JSON.parse(body);
+        } catch {
+            sendAnthropicError(res, 400, "Invalid JSON in request body", "invalid_request_error");
+            return;
+        }
+
+        const converted = anthropicToOpenAI(data);
+        const stream = converted.stream;
+        const tools = converted.tools;
+
+        verboseLog("ANTHROPIC_REQUEST_PARAMS", {
+            model: data.model,
+            stream,
+            max_tokens: data.max_tokens,
+            tools_count: tools.length,
+            messages_count: converted.messages.length,
+            messages: converted.messages,
+            ...(tools.length ? { tools } : {}),
+        });
+
+        if (!converted.messages.some((m) => m.role !== "system")) {
+            sendAnthropicError(res, 400, "No messages provided", "invalid_request_error");
+            return;
+        }
+
+        const prompt = messagesToPrompt(converted.messages, tools);
+        if (!prompt.trim()) {
+            sendAnthropicError(res, 400, "Empty prompt after processing messages", "invalid_request_error");
+            return;
+        }
+
+        const adapted = createAnthropicResponseAdapter(res, { model: data.model });
+        runClaudeCode(prompt, converted.model, stream, adapted, tools);
+        return;
+    }
+
+    // ── POST /v1/messages/count_tokens ── (estimate, same ratio as usage fields)
+    if (url.pathname === "/v1/messages/count_tokens" && req.method === "POST") {
+        let data;
+        try {
+            data = JSON.parse(await readBody(req));
+        } catch {
+            sendAnthropicError(res, 400, "Invalid JSON in request body", "invalid_request_error");
+            return;
+        }
+        const converted = anthropicToOpenAI(data);
+        const prompt = messagesToPrompt(converted.messages, converted.tools);
+        res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify({ input_tokens: estimateTokens(prompt) }));
+        return;
+    }
+
     sendError(res, 404, `Unknown endpoint: ${req.method} ${url.pathname}`, "not_found");
 });
 
@@ -783,14 +933,20 @@ server.listen(CONFIG.port, CONFIG.host, () => {
     const authLabel = process.env.ANTHROPIC_API_KEY
         ? "ANTHROPIC_API_KEY (live model list enabled)"
         : "claude.ai OAuth (set ANTHROPIC_API_KEY for live models)";
+    const apiKeyLabel = CONFIG.apiKey
+        ? "required (BRIDGE_API_KEY)"
+        : "none — keep bridge on localhost";
     console.log(`
 ┌──────────────────────────────────────────────────────────┐
-│              claude-code-bridge v1.2.1                    │
-│    OpenAI-compatible API  →  Claude Code CLI             │
+│              claude-code-bridge v1.3.0                    │
+│   OpenAI + Anthropic API  →  Claude Code CLI             │
 ├──────────────────────────────────────────────────────────┤
 │  Endpoint:   http://${CONFIG.host}:${CONFIG.port}/v1/chat/completions  │
+│  Anthropic:  /v1/messages (set ANTHROPIC_BASE_URL here)  │
+│  Metrics:    /metrics (Prometheus)                        │
 │  Model:      ${CONFIG.claudeModel.padEnd(43)}│
 │  Permission: ${CONFIG.permissionMode.padEnd(43)}│
+│  APIKey:     ${apiKeyLabel.padEnd(43)}│
 │  Auth:       ${authLabel.slice(0, 43).padEnd(43)}│
 │  WorkingDir: ${CONFIG.workingDir.slice(-43).padEnd(43)}│
 │  Timeout:    ${(CONFIG.timeoutMs / 1000 + "s").padEnd(43)}│
