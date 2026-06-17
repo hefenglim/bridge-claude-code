@@ -10,7 +10,7 @@
 - **Anthropic 相容 API**（v1.3）— `POST /v1/messages` 讓 Anthropic SDK 甚至 **Claude Code** 本身（`ANTHROPIC_BASE_URL`）都能走 bridge
 - **Tool calling** — 完整多輪 `tools` 迴圈；不需要切換 model（Claude 原生就遵守 tool protocol）
 - **Ops-ready**（v1.3）— 可選的 bearer auth（`BRIDGE_API_KEY`）供 LAN/Tailscale 使用、Prometheus `/metrics`、每日輪替的 log
-- **跨平台** — `install.sh`/`start.sh`/`stop.sh` 都有原生 PowerShell 雙生版（`install.ps1`/`start.ps1`/`stop.ps1`）；長 prompt 走 stdin 避開 OS command-line 長度限制
+- **跨平台** — `install.sh`/`start.sh`/`stop.sh`/`uninstall.sh` 都有原生 PowerShell 雙生版（`install.ps1`/`start.ps1`/`stop.ps1`/`uninstall.ps1`）；長 prompt 走 stdin 避開 OS command-line 長度限制
 - **零依賴** — 純 Node.js 內建模組；auth 完全交給 Claude Code 自己的登入處理
 
 ```
@@ -87,15 +87,11 @@ cd bridge-claude-code
 curl http://127.0.0.1:18793/health
 curl http://127.0.0.1:18793/v1/models
 
-# OpenAI 格式
-curl http://127.0.0.1:18793/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model":"sonnet","messages":[{"role":"user","content":"Hello!"}]}'
+# OpenAI 格式（單行——bash 與 PowerShell 都通用）
+curl http://127.0.0.1:18793/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"sonnet","messages":[{"role":"user","content":"Hello!"}]}'
 
 # Anthropic 格式——或把 ANTHROPIC_BASE_URL 指到這裡，用 SDK / Claude Code
-curl http://127.0.0.1:18793/v1/messages \
-  -H "Content-Type: application/json" \
-  -d '{"model":"sonnet","max_tokens":1024,"messages":[{"role":"user","content":"Hello!"}]}'
+curl http://127.0.0.1:18793/v1/messages -H "Content-Type: application/json" -d '{"model":"sonnet","max_tokens":1024,"messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
 ## 文件
@@ -121,7 +117,8 @@ npm test
 ## 移除
 
 ```bash
-./uninstall.sh
+./uninstall.sh     # Linux / macOS / WSL
+.\uninstall.ps1    # Windows（PowerShell）
 ```
 
 ## License

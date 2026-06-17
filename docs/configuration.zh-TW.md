@@ -147,9 +147,15 @@ Log stream 會在午夜自動輪替，不需重啟。設 `BRIDGE_VERBOSE=false` 
 ## 移除
 
 ```bash
-./uninstall.sh
+./uninstall.sh                 # Linux / macOS / WSL
+.\uninstall.ps1                # Windows（PowerShell）
+.\uninstall.ps1 -DeleteLogs    # Windows，並一併移除 logs/（不詢問）
 ```
 
-會停掉 bridge、移除 `~/.bashrc` 的 auto-start、清理產生的檔案。OpenClaw / Hermes 整合用 `./clearset-openclaw.sh` / `./clearset-hermesagent.sh` 還原。
+兩者都會停掉 bridge、清理產生的檔案（`.env`、`*.pid`），並在刪除 `logs/` 前詢問。
+Linux/macOS 版還會移除 `~/.bashrc` 的 auto-start；OpenClaw / Hermes 整合用
+`./clearset-openclaw.sh` / `./clearset-hermesagent.sh` 還原。Windows 安裝程式不會
+加入任何 shell auto-start，整合腳本也僅限 Linux/macOS，因此 `uninstall.ps1` 沒有對應
+需要還原的項目。
 
 Windows：跑 `.\stop.ps1` 後刪掉專案資料夾即可——`install.ps1` 只建立本地 `.env`（不寫 registry 或開機項目）。

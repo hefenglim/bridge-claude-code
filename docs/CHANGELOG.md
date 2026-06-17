@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.3.1 — 2026-06-17
+
+### Fixed
+- **Windows daemon startup crash** — `process.env.HOME` is undefined on Windows, so
+  `start.ps1 daemon` (clean `Start-Process` environment) left `CONFIG.workingDir`
+  undefined and crashed the startup banner right after binding; the daemon died and
+  the health check failed. `workingDir` now resolves through
+  `CLAUDE_WORKING_DIR → HOME → USERPROFILE → cwd` via the new pure
+  `lib/config.mjs` helper (with unit tests)
+
+### Added
+- **`uninstall.ps1`** — Windows twin of `uninstall.sh`: stops the bridge, removes
+  generated files (`.env`, `*.pid`), and prompts before deleting `logs/`
+  (`-DeleteLogs` skips the prompt)
+
+### Docs
+- README "Try it" `curl` examples are now single-line so they paste into both bash
+  and PowerShell (the `\` line-continuation only works in bash; PowerShell uses a backtick)
+
 ## v1.3.0 — 2026-06-16
 
 ### Added

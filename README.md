@@ -10,7 +10,7 @@ Turn your **Claude Code** login into a local AI API server. bridge-claude-code w
 - **Anthropic-compatible API** (v1.3) — `POST /v1/messages` lets the Anthropic SDK and even **Claude Code** (`ANTHROPIC_BASE_URL`) run through the bridge
 - **Tool calling** — full multi-turn `tools` loop; no model switching needed (Claude follows the tool protocol natively)
 - **Ops-ready** (v1.3) — optional bearer auth (`BRIDGE_API_KEY`) for LAN/Tailscale use, Prometheus `/metrics`, daily-rotated logs
-- **Cross-platform** — `install.sh`/`start.sh`/`stop.sh` with native PowerShell twins (`install.ps1`/`start.ps1`/`stop.ps1`); long prompts go via stdin to dodge OS command-line limits
+- **Cross-platform** — `install.sh`/`start.sh`/`stop.sh`/`uninstall.sh` with native PowerShell twins (`install.ps1`/`start.ps1`/`stop.ps1`/`uninstall.ps1`); long prompts go via stdin to dodge OS command-line limits
 - **Zero dependencies** — pure Node.js built-in modules; auth is handled entirely by Claude Code's own login
 
 ```
@@ -87,15 +87,11 @@ Or manually on any platform: `cp .env.example .env` and `node claude-code-bridge
 curl http://127.0.0.1:18793/health
 curl http://127.0.0.1:18793/v1/models
 
-# OpenAI format
-curl http://127.0.0.1:18793/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model":"sonnet","messages":[{"role":"user","content":"Hello!"}]}'
+# OpenAI format (single line — works in bash and PowerShell)
+curl http://127.0.0.1:18793/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"sonnet","messages":[{"role":"user","content":"Hello!"}]}'
 
 # Anthropic format — or point ANTHROPIC_BASE_URL here and use the SDK / Claude Code
-curl http://127.0.0.1:18793/v1/messages \
-  -H "Content-Type: application/json" \
-  -d '{"model":"sonnet","max_tokens":1024,"messages":[{"role":"user","content":"Hello!"}]}'
+curl http://127.0.0.1:18793/v1/messages -H "Content-Type: application/json" -d '{"model":"sonnet","max_tokens":1024,"messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
 ## Documentation
@@ -121,7 +117,8 @@ npm test
 ## Uninstall
 
 ```bash
-./uninstall.sh
+./uninstall.sh     # Linux / macOS / WSL
+.\uninstall.ps1    # Windows (PowerShell)
 ```
 
 ## License

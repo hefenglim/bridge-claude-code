@@ -147,9 +147,16 @@ The log stream auto-rotates at midnight without requiring a restart. Set `BRIDGE
 ## Uninstall
 
 ```bash
-./uninstall.sh
+./uninstall.sh                 # Linux / macOS / WSL
+.\uninstall.ps1                # Windows (PowerShell)
+.\uninstall.ps1 -DeleteLogs    # Windows, also remove logs/ without prompting
 ```
 
-Stops the bridge, removes the auto-start entry from `~/.bashrc`, and cleans up generated files. OpenClaw / Hermes integrations are reverted by `./clearset-openclaw.sh` / `./clearset-hermesagent.sh`.
+Both stop the bridge and clean up generated files (`.env`, `*.pid`), then prompt
+before deleting `logs/`. On Linux/macOS the script also removes the auto-start
+entry from `~/.bashrc`; OpenClaw / Hermes integrations are reverted by
+`./clearset-openclaw.sh` / `./clearset-hermesagent.sh`. The Windows installer adds
+no shell auto-start entry and the integrations are Linux/macOS-only, so
+`uninstall.ps1` has nothing equivalent to revert.
 
 On Windows: run `.\stop.ps1`, then delete the project folder — `install.ps1` only creates the local `.env` (no registry or startup entries).

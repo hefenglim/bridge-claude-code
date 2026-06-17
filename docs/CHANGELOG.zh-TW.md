@@ -2,6 +2,23 @@
 
 # Changelog
 
+## v1.3.1 — 2026-06-17
+
+### 修正
+- **Windows daemon 啟動崩潰** — Windows 沒有 `process.env.HOME`，所以
+  `start.ps1 daemon`（乾淨的 `Start-Process` 環境）會讓 `CONFIG.workingDir` 變成
+  undefined，在 bind 之後印橫幅時立刻崩潰，daemon 死掉、health check 失敗。
+  `workingDir` 改為依序 `CLAUDE_WORKING_DIR → HOME → USERPROFILE → cwd` 解析，
+  邏輯放進新的純模組 `lib/config.mjs`（含單元測試）
+
+### 新增
+- **`uninstall.ps1`** — `uninstall.sh` 的 Windows 雙生版：停掉 bridge、移除產生的檔案
+  （`.env`、`*.pid`），並在刪除 `logs/` 前詢問（`-DeleteLogs` 可略過詢問）
+
+### 文件
+- README「Try it」的 `curl` 範例改為單行，bash 與 PowerShell 都能直接貼上執行
+  （`\` 換行接續只在 bash 有效；PowerShell 用的是反引號 backtick）
+
 ## v1.3.0 — 2026-06-16
 
 ### 新增
