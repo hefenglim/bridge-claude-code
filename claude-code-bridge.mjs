@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 /**
- * claude-code-bridge v1.3.2 — OpenAI + Anthropic API proxy for Claude Code CLI
+ * claude-code-bridge v1.4.0 — OpenAI + Anthropic API proxy for Claude Code CLI
  *
  * Architecture:
  *   OpenAI / Anthropic clients  ──►  claude-code-bridge (port 18793)  ──►  claude -p --output-format stream-json
  *
  * This proxy server speaks both the OpenAI and Anthropic wire formats,
  * letting any OpenAI- or Anthropic-compatible client call Claude Code CLI.
+ *
+ * v1.4.0: LLM mode (BRIDGE_TOOL_MODE=llm) — passes --tools "" to claude, disabling every
+ *   built-in tool (Read, Write, Bash, …). Claude behaves as a pure LLM with no filesystem
+ *   access. Required when the bridge is shared across machines: callers include file content
+ *   in the prompt themselves (same model as every cloud LLM API).
+ *   BRIDGE_TOOL_MODE=agent (default) preserves existing behaviour.
  *
  * v1.3.2: Windows start.ps1 LAN helpers — auto-generates BRIDGE_API_KEY when exposing on
  *   0.0.0.0, writes self-elevating firewall add/delete scripts, shows the host LAN IPv4 as a
@@ -59,7 +65,7 @@ import { fileURLToPath } from "node:url";
 import { anthropicToOpenAI, createAnthropicResponseAdapter } from "./lib/anthropic-compat.mjs";
 import { isAuthorized } from "./lib/auth.mjs";
 import { createMetrics, endpointLabel } from "./lib/metrics.mjs";
-import { resolveWorkingDir } from "./lib/config.mjs";
+import { resolveWorkingDir, resolveToolMode } from "./lib/config.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -142,6 +148,11 @@ const CONFIG = {
     // key. Empty (default) disables auth — fine for the localhost-only threat
     // model; set BRIDGE_API_KEY before exposing the bridge on a LAN / Tailscale.
     apiKey: process.env.BRIDGE_API_KEY || "",
+    // Tool mode: 'agent' (default) enables all built-in Claude Code tools with
+    // --dangerously-skip-permissions. 'llm' passes --tools "" to disable every
+    // built-in tool so Claude behaves as a pure LLM — required when the bridge
+    // is shared across machines (tools would otherwise run on the bridge host).
+    toolMode: resolveToolMode(),
 };
 
 // Hardcoded fallback: known Claude Code model aliases and full IDs
@@ -433,8 +444,13 @@ function runClaudeCode(prompt, requestModel, stream, res, tools) {
         args.push("--output-format", "json");
     }
 
-    // Permission mode
-    if (CONFIG.permissionMode === "bypassPermissions") {
+    // Tool mode / permission mode
+    if (CONFIG.toolMode === "llm") {
+        // Pure LLM: disable every built-in tool. No permission bypass needed
+        // since there are no tools to approve. Callers must supply file content
+        // in the prompt (same model as any cloud LLM API).
+        args.push("--tools", "");
+    } else if (CONFIG.permissionMode === "bypassPermissions") {
         args.push("--dangerously-skip-permissions");
     } else if (CONFIG.permissionMode === "plan") {
         args.push("--permission-mode", "plan");
@@ -452,7 +468,7 @@ function runClaudeCode(prompt, requestModel, stream, res, tools) {
     }
 
     console.log(
-        `[${new Date().toISOString()}] → Request ${requestId.slice(-8)}: model=${claudeModel} stream=${stream} tools=${tools?.length || 0} prompt=${prompt.length} chars (${useStdinPipe ? "stdin-pipe" : "arg"}) permission=${CONFIG.permissionMode}`
+        `[${new Date().toISOString()}] → Request ${requestId.slice(-8)}: model=${claudeModel} stream=${stream} tools=${tools?.length || 0} prompt=${prompt.length} chars (${useStdinPipe ? "stdin-pipe" : "arg"}) mode=${CONFIG.toolMode}`
     );
 
     // On Windows, .ps1 files cannot be spawned directly — wrap via powershell.exe
@@ -789,8 +805,9 @@ const server = createServer(async (req, res) => {
             JSON.stringify({
                 status: "ok",
                 service: "claude-code-bridge",
-                version: "1.3.2",
+                version: "1.4.0",
                 model: CONFIG.claudeModel,
+                toolMode: CONFIG.toolMode,
                 permissionMode: CONFIG.permissionMode,
                 supports: {
                     // v1.3 — Anthropic Messages API + optional bearer auth + Prometheus metrics
@@ -958,13 +975,14 @@ server.listen(CONFIG.port, CONFIG.host, () => {
         : "none — keep bridge on localhost";
     console.log(`
 ┌──────────────────────────────────────────────────────────┐
-│              claude-code-bridge v1.3.2                    │
+│              claude-code-bridge v1.4.0                    │
 │   OpenAI + Anthropic API  →  Claude Code CLI             │
 ├──────────────────────────────────────────────────────────┤
 │  Endpoint:   http://${CONFIG.host}:${CONFIG.port}/v1/chat/completions  │
 │  Anthropic:  /v1/messages (set ANTHROPIC_BASE_URL here)  │
 │  Metrics:    /metrics (Prometheus)                        │
 │  Model:      ${CONFIG.claudeModel.padEnd(43)}│
+│  ToolMode:   ${CONFIG.toolMode.padEnd(43)}│
 │  Permission: ${CONFIG.permissionMode.padEnd(43)}│
 │  APIKey:     ${apiKeyLabel.padEnd(43)}│
 │  Auth:       ${authLabel.slice(0, 43).padEnd(43)}│

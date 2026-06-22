@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.4.0 — 2026-06-22
+
+### Added
+- **LLM mode (`BRIDGE_TOOL_MODE=llm`)** — passes `--tools ""` to the `claude` subprocess,
+  disabling every built-in tool (Read, Write, Edit, Bash, WebSearch, …). Claude behaves as
+  a pure language model with no filesystem access. Required when the bridge is shared across
+  machines: callers include file content in the prompt themselves, exactly as with any cloud
+  LLM API. The AI asks callers to paste file contents if it needs them.
+  - `agent` (default) — existing behaviour; all Claude Code built-in tools enabled,
+    `--dangerously-skip-permissions` applied
+  - `llm` — `--tools ""`, no permission bypass needed
+- Startup banner now shows a `ToolMode` row; `/health` response includes a `toolMode` field
+- `lib/config.mjs` — new exported `resolveToolMode()` helper (with unit tests)
+
 ## v1.3.2 — 2026-06-18
 
 ### Added

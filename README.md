@@ -9,6 +9,7 @@ Turn your **Claude Code** login into a local AI API server. bridge-claude-code w
 - **OpenAI-compatible API** — `POST /v1/chat/completions` (streaming & non-streaming) works with OpenClaw, Hermes Agent, Continue.dev, the OpenAI SDK, or plain `curl`
 - **Anthropic-compatible API** (v1.3) — `POST /v1/messages` lets the Anthropic SDK and even **Claude Code** (`ANTHROPIC_BASE_URL`) run through the bridge
 - **Tool calling** — full multi-turn `tools` loop; no model switching needed (Claude follows the tool protocol natively)
+- **LLM mode** (`BRIDGE_TOOL_MODE=llm`, v1.4) — disables all built-in agent tools so Claude behaves like a plain cloud LLM; the right choice when sharing the bridge across machines (in `agent` mode Claude's file/Bash tools run on the bridge host, not the caller's machine)
 - **Ops-ready** (v1.3) — optional bearer auth (`BRIDGE_API_KEY`) for LAN/Tailscale use, Prometheus `/metrics`, daily-rotated logs
 - **Cross-platform** — `install.sh`/`start.sh`/`stop.sh`/`uninstall.sh` with native PowerShell twins (`install.ps1`/`start.ps1`/`stop.ps1`/`uninstall.ps1`); long prompts go via stdin to dodge OS command-line limits
 - **Zero dependencies** — pure Node.js built-in modules; auth is handled entirely by Claude Code's own login
@@ -112,6 +113,7 @@ curl http://127.0.0.1:18793/v1/messages -H "Content-Type: application/json" -d '
 | **API reference** — endpoints, Anthropic Messages API, bearer auth & Prometheus metrics | [docs/api.md](docs/api.md) |
 | **Configuration** — all env vars, Claude Code auth, logs, troubleshooting, uninstall | [docs/configuration.md](docs/configuration.md) |
 | └ LAN / network exposure — share the bridge with other machines (incl. WSL2 port forwarding) | [docs/configuration.md](docs/configuration.md#exposing-the-bridge-on-a-lan) |
+| └ **LLM mode & remote callers** — disable built-in agent tools when sharing across machines | [docs/configuration.md](docs/configuration.md#llm-mode--remote-callers) |
 | **Models** — aliases, recommended models, live model list, Tool Bridge Mode | [docs/models.md](docs/models.md) |
 | **Integrations** — Hermes Agent, OpenClaw, Anthropic SDK / Claude Code, OpenAI SDK | [docs/integrations.md](docs/integrations.md) |
 | **How it works** — request flow, CLI flags, auth model | [docs/how-it-works.md](docs/how-it-works.md) |

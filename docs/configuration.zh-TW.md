@@ -11,7 +11,8 @@
 | `BRIDGE_API_KEY` | *(空)* | **v1.3** — 可選的 bearer auth；設定後除 `/health` 外每個 endpoint 都需要 key（見 [api.zh-TW.md](api.zh-TW.md#bearer-auth--metricsv13)） |
 | `CLAUDE_MODEL` | `sonnet` | 預設 model（alias 或完整 ID） |
 | `CLAUDE_BIN` | `claude` | `claude` binary 路徑 |
-| `CLAUDE_PERMISSION_MODE` | `bypassPermissions` | `bypassPermissions` / `plan` / `default` |
+| `BRIDGE_TOOL_MODE` | `agent` | **v1.4** — `agent`（所有內建工具，`--dangerously-skip-permissions`）/ `llm`（停用所有內建工具——純 LLM 行為；見 [LLM 模式](#llm-模式--遠端呼叫)） |
+| `CLAUDE_PERMISSION_MODE` | `bypassPermissions` | `bypassPermissions` / `plan` / `default`——僅在 `agent` 模式下生效 |
 | `CLAUDE_WORKING_DIR` | `$HOME` | `claude` subprocess 的工作目錄 |
 | `BRIDGE_TIMEOUT_MS` | `300000` | request timeout（5 分鐘） |
 | `BRIDGE_MAX_ARG_LEN` | `32768` | 超過此長度的 prompt 改走 stdin（避免 `E2BIG`） |
@@ -112,6 +113,60 @@ New-NetFirewallRule -DisplayName "claude-code-bridge" -Direction Inbound -LocalP
 ```
 
 其他電腦改連 **Windows host 的** LAN IP（從 `ipconfig` 看），不是 WSL IP。WSL IP 重開機會變，重啟後要重跑 forward（`netsh interface portproxy reset` 清掉舊規則）。原生 Linux/macOS host 不需要這段——步驟 1–3 就夠了。
+
+## LLM 模式 — 遠端呼叫
+
+> **TL;DR：** 要跨主機分享 bridge？在 server 端設定 `BRIDGE_TOOL_MODE=llm`。呼叫端自己把需要的檔案內容包進 prompt，和使用一般雲端 LLM 完全一樣。
+
+### 為什麼這很重要
+
+claude-code-bridge 包裝的是 `claude -p`，它是一個完整的 AI **agent**，內建讀寫檔案、執行 shell 指令、搜尋網頁等工具。這些工具永遠在**跑 bridge 的那台機器（server）**上執行。當 B 電腦的使用者叫 Claude「讀 `main.py`」，Claude 會去找 A 電腦（bridge host）上的 `main.py`，而不是 B 電腦上的。
+
+單機使用時這是正確行為。但當 bridge 跨網路分享時，你通常希望 Claude 像一般雲端 LLM 一樣——只看到 prompt 裡的內容，需要檔案時請呼叫端自己貼過來。
+
+### 啟用 LLM 模式
+
+```bash
+# .env（bridge server，也就是 A 電腦上）
+BRIDGE_TOOL_MODE=llm
+```
+
+bridge 就會帶 `--tools ""` 呼叫 `claude`，停用所有內建工具（Read、Write、Edit、Bash、WebSearch……）。Claude 變成純語言模型：
+
+- 無法存取 bridge host 上的任何檔案。
+- 若呼叫端叫它「讀 `config.json`」但沒附上內容，Claude 會回覆要求對方把檔案直接貼過來。
+- `CLAUDE_PERMISSION_MODE` / `--dangerously-skip-permissions` 不再適用（沒有工具就沒有需要審核的動作）。
+
+### 呼叫端如何傳遞檔案內容
+
+B 電腦的使用者在自己的機器上讀檔，再把內容放進 prompt——這和所有雲端 LLM IDE 插件的做法完全一樣：
+
+```bash
+# B 電腦——本地讀檔，注入 request
+FILE_CONTENT=$(cat main.py)
+
+curl http://192.168.1.50:18793/v1/chat/completions \
+  -H "Authorization: Bearer <key>" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"model\": \"sonnet\",
+    \"messages\": [{
+      \"role\": \"user\",
+      \"content\": \"Review this file:\n\n\`\`\`python\n${FILE_CONTENT}\n\`\`\`\"
+    }]
+  }"
+```
+
+Continue.dev、Cursor 等 AI 程式設計用戶端會自動做這件事——它們讀取編輯器裡開著的檔案，在送出 request 前把內容注入進去。
+
+### 模式比較
+
+| | `agent`（預設） | `llm` |
+|---|---|---|
+| 內建工具 | ✅ 全部啟用 | ❌ 停用（`--tools ""`） |
+| 檔案存取 | Bridge host 的檔案系統 | 無——由呼叫端提供內容 |
+| `--dangerously-skip-permissions` | 是 | 否 |
+| 適合場景 | 單機使用 | 跨主機/多人共用 |
 
 ## Logs
 

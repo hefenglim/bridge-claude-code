@@ -2,6 +2,18 @@
 
 # Changelog
 
+## v1.4.0 — 2026-06-22
+
+### 新增
+- **LLM 模式（`BRIDGE_TOOL_MODE=llm`）** — 帶 `--tools ""` 呼叫 `claude` subprocess，
+  停用所有內建工具（Read、Write、Edit、Bash、WebSearch……）。Claude 變成純語言模型，
+  無法存取任何檔案系統。跨主機分享 bridge 時必須啟用：呼叫端自己把需要的檔案內容包進
+  prompt，和所有雲端 LLM API 的使用方式完全一樣。Claude 需要檔案時會要求呼叫端貼上內容。
+  - `agent`（預設）— 現有行為；所有 Claude Code 內建工具啟用，套用 `--dangerously-skip-permissions`
+  - `llm` — `--tools ""`，不需要 permission bypass
+- 啟動橫幅新增 `ToolMode` 列；`/health` 回應新增 `toolMode` 欄位
+- `lib/config.mjs` — 新增匯出函式 `resolveToolMode()`（含單元測試）
+
 ## v1.3.2 — 2026-06-18
 
 ### 新增

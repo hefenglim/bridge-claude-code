@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveWorkingDir } from "../lib/config.mjs";
+import { resolveWorkingDir, resolveToolMode } from "../lib/config.mjs";
 
 test("prefers explicit CLAUDE_WORKING_DIR over everything", () => {
   const env = { CLAUDE_WORKING_DIR: "/work", HOME: "/home", USERPROFILE: "C:\\Users\\u" };
@@ -30,4 +30,28 @@ test("always returns a non-empty string", () => {
   const result = resolveWorkingDir({}, "");
   assert.equal(typeof result, "string");
   assert.ok(result.length > 0);
+});
+
+// ── resolveToolMode ────────────────────────────────────────────────
+
+test("resolveToolMode: defaults to agent when BRIDGE_TOOL_MODE is unset", () => {
+  assert.equal(resolveToolMode({}), "agent");
+});
+
+test("resolveToolMode: returns llm for BRIDGE_TOOL_MODE=llm", () => {
+  assert.equal(resolveToolMode({ BRIDGE_TOOL_MODE: "llm" }), "llm");
+});
+
+test("resolveToolMode: llm match is case-insensitive", () => {
+  assert.equal(resolveToolMode({ BRIDGE_TOOL_MODE: "LLM" }), "llm");
+  assert.equal(resolveToolMode({ BRIDGE_TOOL_MODE: "Llm" }), "llm");
+});
+
+test("resolveToolMode: unknown values fall back to agent", () => {
+  assert.equal(resolveToolMode({ BRIDGE_TOOL_MODE: "auto" }), "agent");
+  assert.equal(resolveToolMode({ BRIDGE_TOOL_MODE: "" }), "agent");
+});
+
+test("resolveToolMode: agent is explicit alias", () => {
+  assert.equal(resolveToolMode({ BRIDGE_TOOL_MODE: "agent" }), "agent");
 });

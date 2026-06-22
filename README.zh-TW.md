@@ -9,6 +9,7 @@
 - **OpenAI 相容 API** — `POST /v1/chat/completions`（streaming 與 non-streaming），可搭配 OpenClaw、Hermes Agent、Continue.dev、OpenAI SDK 或純 `curl`
 - **Anthropic 相容 API**（v1.3）— `POST /v1/messages` 讓 Anthropic SDK 甚至 **Claude Code** 本身（`ANTHROPIC_BASE_URL`）都能走 bridge
 - **Tool calling** — 完整多輪 `tools` 迴圈；不需要切換 model（Claude 原生就遵守 tool protocol）
+- **LLM 模式**（`BRIDGE_TOOL_MODE=llm`，v1.4）— 停用所有內建 agent 工具，讓 Claude 像一般雲端 LLM 一樣運作；跨主機分享 bridge 時的正確選擇（`agent` 模式下 Claude 的檔案/Bash 工具會在 bridge 所在機器執行，而非呼叫端的機器）
 - **Ops-ready**（v1.3）— 可選的 bearer auth（`BRIDGE_API_KEY`）供 LAN/Tailscale 使用、Prometheus `/metrics`、每日輪替的 log
 - **跨平台** — `install.sh`/`start.sh`/`stop.sh`/`uninstall.sh` 都有原生 PowerShell 雙生版（`install.ps1`/`start.ps1`/`stop.ps1`/`uninstall.ps1`）；長 prompt 走 stdin 避開 OS command-line 長度限制
 - **零依賴** — 純 Node.js 內建模組；auth 完全交給 Claude Code 自己的登入處理
@@ -112,6 +113,7 @@ curl http://127.0.0.1:18793/v1/messages -H "Content-Type: application/json" -d '
 | **API reference** — endpoints、Anthropic Messages API、bearer auth 與 Prometheus metrics | [docs/api.zh-TW.md](docs/api.zh-TW.md) |
 | **設定** — 所有 env vars、Claude Code 認證、logs、疑難排解、移除 | [docs/configuration.zh-TW.md](docs/configuration.zh-TW.md) |
 | └ LAN / 對外曝露 — 分享給其他電腦使用（含 WSL2 port forwarding） | [docs/configuration.zh-TW.md](docs/configuration.zh-TW.md#在-lan-上曝露-bridge) |
+| └ **LLM 模式與遠端呼叫** — 跨主機分享時停用內建 agent 工具 | [docs/configuration.zh-TW.md](docs/configuration.zh-TW.md#llm-模式--遠端呼叫) |
 | **模型** — aliases、推薦模型、即時 model list、Tool Bridge Mode | [docs/models.zh-TW.md](docs/models.zh-TW.md) |
 | **整合** — Hermes Agent、OpenClaw、Anthropic SDK / Claude Code、OpenAI SDK | [docs/integrations.zh-TW.md](docs/integrations.zh-TW.md) |
 | **運作原理** — request flow、CLI flags、auth model | [docs/how-it-works.zh-TW.md](docs/how-it-works.zh-TW.md) |

@@ -11,7 +11,8 @@ All configuration is via environment variables (or the `.env` file — the bridg
 | `BRIDGE_API_KEY` | *(empty)* | **v1.3** — optional bearer auth; when set, every endpoint except `/health` requires the key (see [api.md](api.md#bearer-auth--metrics-v13)) |
 | `CLAUDE_MODEL` | `sonnet` | Default model (alias or full ID) |
 | `CLAUDE_BIN` | `claude` | Path to the `claude` binary |
-| `CLAUDE_PERMISSION_MODE` | `bypassPermissions` | `bypassPermissions` / `plan` / `default` |
+| `BRIDGE_TOOL_MODE` | `agent` | **v1.4** — `agent` (all built-in tools, `--dangerously-skip-permissions`) / `llm` (no built-in tools — pure LLM behaviour; see [LLM mode](#llm-mode--remote-callers)) |
+| `CLAUDE_PERMISSION_MODE` | `bypassPermissions` | `bypassPermissions` / `plan` / `default` — only applies in `agent` mode |
 | `CLAUDE_WORKING_DIR` | `$HOME` | Working directory for the `claude` subprocess |
 | `BRIDGE_TIMEOUT_MS` | `300000` | Request timeout (5 min) |
 | `BRIDGE_MAX_ARG_LEN` | `32768` | Prompts longer than this are piped via stdin (avoids `E2BIG`) |
@@ -112,6 +113,60 @@ New-NetFirewallRule -DisplayName "claude-code-bridge" -Direction Inbound -LocalP
 ```
 
 Other machines then connect to the **Windows host's** LAN IP (from `ipconfig`), not the WSL IP. The WSL IP changes on reboot, so re-run the forward after restarting (`netsh interface portproxy reset` clears the old rules). A native Linux/macOS host needs none of this — steps 1–3 are enough.
+
+## LLM mode — remote callers
+
+> **TL;DR:** Sharing the bridge across machines? Set `BRIDGE_TOOL_MODE=llm` on the server. Callers then include file content in the prompt themselves, exactly like any cloud LLM.
+
+### Why it matters
+
+claude-code-bridge wraps `claude -p`, which is a full AI **agent**. It has built-in tools for reading and writing files, running shell commands, searching the web, and more. Those tools always execute on the **machine running the bridge** (the server). When a remote caller on Computer B asks Claude to "read `main.py`", Claude looks for `main.py` on Computer A — the bridge host — not on Computer B.
+
+This is correct behaviour for single-machine use. But when the bridge is shared across a network, you usually want Claude to behave like a plain cloud LLM: it only sees what you send it, and if it needs a file it asks you to paste the contents.
+
+### Enable LLM mode
+
+```bash
+# .env  (on the bridge server, Computer A)
+BRIDGE_TOOL_MODE=llm
+```
+
+The bridge then passes `--tools ""` to `claude`, disabling every built-in tool (Read, Write, Edit, Bash, WebSearch, …). Claude becomes a pure language model:
+
+- It cannot access any file on the bridge host.
+- If a caller asks it to "read `config.json`" without providing the content, Claude will reply asking the caller to paste the file directly into the message.
+- `CLAUDE_PERMISSION_MODE` / `--dangerously-skip-permissions` no longer applies (there are no tools to approve).
+
+### How callers send file content
+
+Callers on Computer B read their own files and include the content in the prompt — the same pattern every cloud LLM IDE plugin uses:
+
+```bash
+# Computer B — read the file locally, inject into the request
+FILE_CONTENT=$(cat main.py)
+
+curl http://192.168.1.50:18793/v1/chat/completions \
+  -H "Authorization: Bearer <key>" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"model\": \"sonnet\",
+    \"messages\": [{
+      \"role\": \"user\",
+      \"content\": \"Review this file:\n\n\`\`\`python\n${FILE_CONTENT}\n\`\`\`\"
+    }]
+  }"
+```
+
+AI coding clients (Continue.dev, Cursor, etc.) do this automatically — they read the files open in your editor and inject the content before sending the request to the configured endpoint.
+
+### Mode comparison
+
+| | `agent` (default) | `llm` |
+|---|---|---|
+| Built-in tools | ✅ all enabled | ❌ disabled (`--tools ""`) |
+| File access | Bridge-host filesystem | None — caller provides content |
+| `--dangerously-skip-permissions` | Yes | No |
+| Best for | Single machine | Shared / multi-machine |
 
 ## Logs
 
